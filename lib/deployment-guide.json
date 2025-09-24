@@ -1,0 +1,84 @@
+{
+  "title": "Stylus Smart Contract Deployment Guide",
+  "description": "Step-by-step guide to deploy your Freelance Escrow contract to Arbitrum Stylus",
+  "steps": [
+    {
+      "step": 1,
+      "title": "Install Stylus CLI",
+      "command": "cargo install --force cargo-stylus",
+      "description": "Install the Stylus CLI tool for deploying Rust contracts"
+    },
+    {
+      "step": 2,
+      "title": "Check Your Contract",
+      "command": "cargo stylus check",
+      "description": "Verify your contract compiles correctly for Stylus",
+      "directory": "contracts/"
+    },
+    {
+      "step": 3,
+      "title": "Deploy to Arbitrum Sepolia (Testnet)",
+      "command": "cargo stylus deploy --private-key=<YOUR_PRIVATE_KEY>",
+      "description": "Deploy to testnet first for testing",
+      "directory": "contracts/",
+      "notes": [
+        "Replace <YOUR_PRIVATE_KEY> with your actual private key",
+        "Make sure you have Sepolia ETH for gas fees",
+        "Get testnet ETH from: https://faucet.quicknode.com/arbitrum/sepolia"
+      ]
+    },
+    {
+      "step": 4,
+      "title": "Deploy to Arbitrum One (Mainnet)",
+      "command": "cargo stylus deploy --private-key=<YOUR_PRIVATE_KEY> --endpoint=https://arb1.arbitrum.io/rpc",
+      "description": "Deploy to mainnet when ready for production",
+      "directory": "contracts/",
+      "notes": [
+        "Ensure thorough testing on testnet first",
+        "You'll need real ETH for mainnet deployment",
+        "Consider using a hardware wallet for mainnet"
+      ]
+    }
+  ],
+  "environment_setup": {
+    "required_tools": ["Rust (latest stable)", "cargo-stylus CLI", "Git"],
+    "network_configuration": {
+      "arbitrum_sepolia": {
+        "rpc_url": "https://sepolia-rollup.arbitrum.io/rpc",
+        "chain_id": 421614,
+        "explorer": "https://sepolia.arbiscan.io"
+      },
+      "arbitrum_one": {
+        "rpc_url": "https://arb1.arbitrum.io/rpc",
+        "chain_id": 42161,
+        "explorer": "https://arbiscan.io"
+      }
+    }
+  },
+  "integration_steps": [
+    {
+      "step": 1,
+      "title": "Update Contract Address",
+      "description": "After deployment, update CONTRACT_ADDRESSES in lib/smart-contracts.ts with your deployed contract address"
+    },
+    {
+      "step": 2,
+      "title": "Verify Contract",
+      "description": "Verify your contract on Arbiscan for transparency and easier interaction"
+    },
+    {
+      "step": 3,
+      "title": "Test Integration",
+      "description": "Test all contract functions through your frontend interface"
+    }
+  ],
+  "cost_estimates": {
+    "deployment_gas": "~2,000,000 gas",
+    "typical_transaction_costs": {
+      "create_escrow": "~150,000 gas",
+      "release_funds": "~80,000 gas",
+      "auto_release": "~85,000 gas",
+      "raise_dispute": "~60,000 gas"
+    }
+  }
+}
