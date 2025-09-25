@@ -133,7 +133,7 @@ export const NETWORK_CONFIG = {
 
 // Smart Contract Service Class
 export class EscrowContractService {
-  private provider: ethers.providers.Web3Provider | null = null
+  private provider: ethers.BrowserProvider | null = null
   private contract: ethers.Contract | null = null
   private signer: ethers.Signer | null = null
 
@@ -145,9 +145,9 @@ export class EscrowContractService {
   async initializeProvider() {
     if (typeof window !== "undefined" && window.ethereum) {
       try {
-        this.provider = new ethers.providers.Web3Provider(window.ethereum)
+        this.provider = new ethers.BrowserProvider(window.ethereum)
         await this.provider.send("eth_requestAccounts", [])
-        this.signer = this.provider.getSigner()
+        this.signer = await this.provider.getSigner()
 
         // Initialize contract instance
         this.contract = new ethers.Contract(CONTRACT_ADDRESSES.ESCROW_CONTRACT, ESCROW_CONTRACT_ABI, this.signer)
@@ -167,7 +167,7 @@ export class EscrowContractService {
 
     try {
       const clientAddress = await this.signer.getAddress()
-      const amountWei = ethers.utils.parseEther(amount)
+      const amountWei = ethers.parseEther(amount)
 
       console.log("[v0] Creating escrow contract...", {
         client: clientAddress,
@@ -235,7 +235,7 @@ export class EscrowContractService {
       return {
         client: escrowData.client,
         freelancer: escrowData.freelancer,
-        amount: ethers.utils.formatEther(escrowData.amount),
+        amount: ethers.formatEther(escrowData.amount),
         deadline: new Date(escrowData.deadline.toNumber() * 1000),
         status: escrowData.status,
         description: escrowData.description,
@@ -256,7 +256,7 @@ export class EscrowContractService {
         escrowId: escrowId.toString(),
         client,
         freelancer,
-        amount: ethers.utils.formatEther(amount),
+        amount: ethers.formatEther(amount),
         transactionHash: event.transactionHash,
       })
     })
@@ -266,7 +266,7 @@ export class EscrowContractService {
       console.log("[v0] Funds released:", {
         escrowId: escrowId.toString(),
         freelancer,
-        amount: ethers.utils.formatEther(amount),
+        amount: ethers.formatEther(amount),
         transactionHash: event.transactionHash,
       })
     })
@@ -340,6 +340,6 @@ export const web3Utils = {
 
   // Validate Ethereum address
   isValidAddress: (address: string) => {
-    return ethers.utils.isAddress(address)
+    return ethers.isAddress(address)
   },
 }
