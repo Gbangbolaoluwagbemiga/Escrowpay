@@ -230,21 +230,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
-// export default function ConnectButton() {
-//
-
-//   return (
-//     <>
-//       <button>Open Connect Modal</button>
-//       <w3m-button />
-
-//       {isConnected && (
-//         <div>
-//           <p>You are now connected to the wallet. Address: {address}</p>
-//           <w3m-network-button />
-//         </div>
-//       )}
-//     </>
-//   );
-// }

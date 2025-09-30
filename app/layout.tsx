@@ -7,6 +7,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import { headers } from "next/headers";
 import ContextProvider from "@/context";
+import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
   title: "EscrowPay - Secure Freelance Payments",
@@ -28,6 +29,7 @@ export default function RootLayout({
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <ContextProvider cookies={cookies}>
           <Suspense fallback={null}>{children}</Suspense>
+          <Toaster />
         </ContextProvider>
         <Analytics />
       </body>
