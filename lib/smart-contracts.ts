@@ -1,9 +1,15 @@
-// Smart Contract Integration for Stylus (Arbitrum)
-// This file demonstrates how to connect to Stylus smart contracts
+import {
+  ethers,
+  BrowserProvider,
+  Contract,
+  formatEther,
+  parseEther,
+  isAddress,
+  getAddress,
+  Interface,
+} from "ethers";
 
-import { ethers } from "ethers";
-
-// Example ABI for a Freelance Escrow Contract
+// Example ABI for Freelance Escrow Contract (Stylus-compatible)
 export const ESCROW_CONTRACT_ABI = [
   {
     inputs: [{ internalType: "uint256", name: "job_id", type: "uint256" }],
@@ -102,24 +108,22 @@ export const ESCROW_CONTRACT_ABI = [
   },
 ] as const;
 
-// Contract addresses (replace with your actual deployed contract addresses)
+// Contract addresses
 export const CONTRACT_ADDRESSES = {
-  // Arbitrum Sepolia (testnet)
-  ESCROW_CONTRACT: "0x0ffaf51ae181a3d20715c4f59d71e3faf6d7a522",
-  // Arbitrum One (mainnet)
-  ESCROW_CONTRACT_MAINNET: "0x0987654321098765432109876543210987654321",
+  ESCROW_CONTRACT: "0x0ffaf51ae181a3d20715c4f59d71e3faf6d7a522", // Arbitrum Sepolia
+  ESCROW_CONTRACT_MAINNET: "0x0987654321098765432109876543210987654321", // Placeholder
 };
 
-// Network configurations for Stylus (Arbitrum)
+// Network configs
 export const NETWORK_CONFIG = {
   arbitrumSepolia: {
-    chainId: 421614,
+    chainId: 421614n,
     name: "Arbitrum Sepolia",
     rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc",
     blockExplorer: "https://sepolia.arbiscan.io",
   },
   arbitrumOne: {
-    chainId: 42161,
+    chainId: 42161n,
     name: "Arbitrum One",
     rpcUrl: "https://arb1.arbitrum.io/rpc",
     blockExplorer: "https://arbiscan.io",
@@ -128,24 +132,22 @@ export const NETWORK_CONFIG = {
 
 // Smart Contract Service Class
 export class EscrowContractService {
-  private provider: ethers.BrowserProvider | null = null;
-  private contract: ethers.Contract | null = null;
-  private signer: ethers.Signer | null = null;
+  private provider: BrowserProvider | null = null;
+  private contract: Contract | null = null;
+  private signer: import("ethers").Signer | null = null;
 
   constructor() {
-    this.initializeProvider();
+    // No sync init—handled explicitly
   }
 
-  // Initialize Web3 provider (MetaMask, WalletConnect, etc.)
   async initializeProvider() {
     if (typeof window !== "undefined" && window.ethereum) {
       try {
-        this.provider = new ethers.BrowserProvider(window.ethereum);
+        this.provider = new BrowserProvider(window.ethereum);
         await this.provider.send("eth_requestAccounts", []);
         this.signer = await this.provider.getSigner();
 
-        // Initialize contract instance
-        this.contract = new ethers.Contract(
+        this.contract = new Contract(
           CONTRACT_ADDRESSES.ESCROW_CONTRACT,
           ESCROW_CONTRACT_ABI,
           this.signer
@@ -154,22 +156,65 @@ export class EscrowContractService {
         console.log("[v0] Smart contract initialized successfully");
       } catch (error) {
         console.error("[v0] Failed to initialize provider:", error);
+        throw error;
       }
+    } else {
+      throw new Error("No Ethereum provider found (e.g., MetaMask)");
     }
   }
 
-  // Deposit funds for a new job (matches ABI: deposit function)
+  // Error translator
+  private translateError(error: any): string {
+    if (!error) return "An unexpected error occurred. Check your connection.";
+
+    switch (error.code) {
+      case "CALL_EXCEPTION":
+        if (!error.reason && !error.data) {
+          return "The contract rejected the request without details. This often happens if: the contract isn't initialized yet (try 'Initialize Contract' first), it's paused, or the addresses/duration are invalid. Check the Actions tab.";
+        }
+        if (error.reason?.includes("insufficient funds")) {
+          return "Not enough ETH in your wallet for the deposit + gas fees. Add more via a faucet.";
+        }
+        if (error.reason?.includes("paused")) {
+          return "The contract is currently paused. An admin needs to unpause it.";
+        }
+        if (error.reason?.includes("not initialized")) {
+          return "The contract hasn't been set up yet. Call 'Initialize Contract' in the Actions tab.";
+        }
+        return `Contract error: ${
+          error.reason ||
+          "Check if inputs are valid (e.g., different addresses, future deadline)."
+        }`;
+
+      case "INSUFFICIENT_FUNDS":
+        return "Not enough ETH for gas or deposit. Fund your wallet on Arbitrum Sepolia (faucet: https://faucet.sepolia.arbitrum.io).";
+
+      case "NETWORK_ERROR":
+        return "Network issue—switch to Arbitrum Sepolia and try again.";
+
+      case "USER_REJECTED_REQUEST":
+        return "You canceled the transaction in your wallet. No changes made.";
+
+      case "ACTION_REJECTED":
+        return "Wallet rejected the action. Check permissions and retry.";
+
+      default:
+        if (error.message?.includes("revert")) {
+          return "The smart contract reverted the action. Double-check your inputs (e.g., freelancer address different from yours, amount > 0, deadline in future).";
+        }
+        return `Blockchain error: ${
+          error.shortMessage || error.message
+        }. If stuck, check console for details.`;
+    }
+  }
+
   async deposit(freelancerAddress: string, duration: number, amount: string) {
     if (!this.contract || !this.signer) {
-      throw new Error("Contract not initialized");
+      throw new Error("Contract not initialized—call initializeProvider first");
     }
 
-    // Validate inputs
-    if (!freelancerAddress || freelancerAddress.trim() === "") {
-      throw new Error("Freelancer address is required");
-    }
-
-    if (!ethers.isAddress(freelancerAddress)) {
+    const normalizedFreelancer = getAddress(freelancerAddress);
+    if (!isAddress(normalizedFreelancer)) {
       throw new Error("Invalid freelancer address format");
     }
 
@@ -182,263 +227,197 @@ export class EscrowContractService {
     }
 
     try {
-      const amountWei = ethers.parseEther(amount);
+      const amountWei = parseEther(amount);
 
-      console.log("[v0] Creating deposit for job...", {
-        freelancer: freelancerAddress,
+      console.log("[v0] Creating deposit...", {
+        freelancer: normalizedFreelancer,
         duration,
         amount: amountWei.toString(),
       });
 
-      const tx = await this.contract.deposit(freelancerAddress, duration, {
-        value: amountWei,
-      });
+      // Pre-estimate gas
+      const gasEstimate = await this.contract.deposit.estimateGas(
+        normalizedFreelancer,
+        BigInt(duration),
+        { value: amountWei }
+      );
+      console.log("[v0] Gas estimate OK:", gasEstimate.toString());
+
+      const tx = await this.contract.deposit(
+        normalizedFreelancer,
+        BigInt(duration),
+        {
+          value: amountWei,
+          gasLimit: (gasEstimate * 120n) / 100n,
+        }
+      );
 
       const receipt = await tx.wait();
-      console.log(
-        "[v0] Deposit created successfully:",
-        receipt.transactionHash
-      );
+      console.log("[v0] Deposit tx:", receipt.hash);
+
+      // Parse jobId
+      const iface = new Interface(ESCROW_CONTRACT_ABI);
+      const log = receipt.logs[0];
+      let jobId = "0";
+      if (log) {
+        try {
+          const parsed = iface.parseLog(log);
+          if (parsed.name === "EscrowCreated") {
+            jobId = parsed.args[0]?.toString() || "0";
+          }
+        } catch {
+          const topic1 = log.topics[1];
+          if (topic1) jobId = BigInt(topic1).toString();
+        }
+      }
 
       return {
-        jobId: receipt.logs?.[0]?.topics?.[1], // Extract job ID from logs
-        transactionHash: receipt.transactionHash,
+        jobId,
+        transactionHash: receipt.hash,
         blockNumber: receipt.blockNumber,
       };
-    } catch (error) {
-      console.error("[v0] Failed to create deposit:", error);
-      throw error;
+    } catch (error: any) {
+      const userMessage = this.translateError(error);
+      console.error("[v0] Deposit failed (technical):", error);
+      console.log("[v0] User-friendly:", userMessage);
+      const friendlyError = new Error(userMessage);
+      friendlyError.cause = error;
+      throw friendlyError;
     }
   }
 
-  // Release funds to freelancer (matches ABI: release function)
   async release(jobId: string) {
-    if (!this.contract) {
-      throw new Error("Contract not initialized");
-    }
-
+    if (!this.contract) throw new Error("Contract not initialized");
     try {
-      console.log("[v0] Releasing funds for job:", jobId);
-
-      const tx = await this.contract.release(jobId);
+      const tx = await this.contract.release(BigInt(jobId));
       const receipt = await tx.wait();
-
-      console.log("[v0] Funds released successfully:", receipt.transactionHash);
+      console.log("[v0] Release tx:", receipt.hash);
       return receipt;
-    } catch (error) {
-      console.error("[v0] Failed to release funds:", error);
-      throw error;
+    } catch (error: any) {
+      throw new Error(this.translateError(error));
     }
   }
 
-  // Auto-release funds (matches ABI: autoRelease function)
   async autoRelease(jobId: string) {
-    if (!this.contract) {
-      throw new Error("Contract not initialized");
-    }
-
+    if (!this.contract) throw new Error("Contract not initialized");
     try {
-      console.log("[v0] Auto-releasing funds for job:", jobId);
-
-      const tx = await this.contract.autoRelease(jobId);
+      const tx = await this.contract.autoRelease(BigInt(jobId));
       const receipt = await tx.wait();
-
-      console.log(
-        "[v0] Funds auto-released successfully:",
-        receipt.transactionHash
-      );
+      console.log("[v0] AutoRelease tx:", receipt.hash);
       return receipt;
-    } catch (error) {
-      console.error("[v0] Failed to auto-release funds:", error);
-      throw error;
+    } catch (error: any) {
+      throw new Error(this.translateError(error));
     }
   }
 
-  // Refund to client (matches ABI: refund function)
   async refund(jobId: string) {
-    if (!this.contract) {
-      throw new Error("Contract not initialized");
-    }
-
+    if (!this.contract) throw new Error("Contract not initialized");
     try {
-      console.log("[v0] Processing refund for job:", jobId);
-
-      const tx = await this.contract.refund(jobId);
+      const tx = await this.contract.refund(BigInt(jobId));
       const receipt = await tx.wait();
-
-      console.log(
-        "[v0] Refund processed successfully:",
-        receipt.transactionHash
-      );
+      console.log("[v0] Refund tx:", receipt.hash);
       return receipt;
-    } catch (error) {
-      console.error("[v0] Failed to process refund:", error);
-      throw error;
+    } catch (error: any) {
+      throw new Error(this.translateError(error));
     }
   }
 
-  // Emergency refund (matches ABI: emergencyRefund function)
   async emergencyRefund(jobId: string) {
-    if (!this.contract) {
-      throw new Error("Contract not initialized");
-    }
-
+    if (!this.contract) throw new Error("Contract not initialized");
     try {
-      console.log("[v0] Processing emergency refund for job:", jobId);
-
-      const tx = await this.contract.emergencyRefund(jobId);
+      const tx = await this.contract.emergencyRefund(BigInt(jobId));
       const receipt = await tx.wait();
-
-      console.log(
-        "[v0] Emergency refund processed successfully:",
-        receipt.transactionHash
-      );
+      console.log("[v0] EmergencyRefund tx:", receipt.hash);
       return receipt;
-    } catch (error) {
-      console.error("[v0] Failed to process emergency refund:", error);
-      throw error;
+    } catch (error: any) {
+      throw new Error(this.translateError(error));
     }
   }
 
-  // Get job details (matches ABI: getJob function)
   async getJob(jobId: string) {
-    if (!this.contract) {
-      throw new Error("Contract not initialized");
-    }
-
+    if (!this.contract) throw new Error("Contract not initialized");
     try {
-      const jobData = await this.contract.getJob(jobId);
-
+      const jobData = await this.contract.getJob(BigInt(jobId));
       return {
         jobId: jobData[0].toString(),
         client: jobData[1],
         freelancer: jobData[2],
-        amount: ethers.formatEther(jobData[3]),
+        amount: formatEther(jobData[3]),
         duration: jobData[4].toString(),
         isCompleted: jobData[5],
         isRefunded: jobData[6],
       };
-    } catch (error) {
-      console.error("[v0] Failed to get job details:", error);
-      throw error;
+    } catch (error: any) {
+      throw new Error(this.translateError(error));
     }
   }
 
-  // Get active jobs (matches ABI: getActiveJobs function)
   async getActiveJobs() {
-    if (!this.contract) {
-      throw new Error("Contract not initialized");
-    }
-
+    if (!this.contract) throw new Error("Contract not initialized");
     try {
       const activeJobIds = await this.contract.getActiveJobs();
-      return activeJobIds.map((id: any) => id.toString());
-    } catch (error) {
-      console.error("[v0] Failed to get active jobs:", error);
-      throw error;
+      return activeJobIds.map((id: bigint) => id.toString());
+    } catch (error: any) {
+      throw new Error(this.translateError(error));
     }
   }
 
-  // Get total jobs count (matches ABI: getTotalJobs function)
   async getTotalJobs() {
-    if (!this.contract) {
-      throw new Error("Contract not initialized");
-    }
-
+    if (!this.contract) throw new Error("Contract not initialized");
     try {
-      const totalJobs = await this.contract.getTotalJobs();
-      return totalJobs.toString();
-    } catch (error) {
-      console.error("[v0] Failed to get total jobs:", error);
-      throw error;
+      const total = await this.contract.getTotalJobs();
+      return total.toString();
+    } catch (error: any) {
+      throw new Error(this.translateError(error));
     }
   }
 
-  // Check if contract is paused (matches ABI: isPaused function)
   async isPaused() {
-    if (!this.contract) {
-      throw new Error("Contract not initialized");
-    }
-
+    if (!this.contract) throw new Error("Contract not initialized");
     try {
-      const paused = await this.contract.isPaused();
-      return paused;
-    } catch (error) {
-      console.error("[v0] Failed to check pause status:", error);
-      throw error;
+      return await this.contract.isPaused();
+    } catch (error: any) {
+      throw new Error(this.translateError(error));
     }
   }
 
-  // Set contract pause state (matches ABI: setPaused function) - Admin only
   async setPaused(state: boolean) {
-    if (!this.contract) {
-      throw new Error("Contract not initialized");
-    }
-
+    if (!this.contract) throw new Error("Contract not initialized");
     try {
-      console.log("[v0] Setting contract pause state:", state);
-
       const tx = await this.contract.setPaused(state);
       const receipt = await tx.wait();
-
-      console.log(
-        "[v0] Contract pause state updated:",
-        receipt.transactionHash
-      );
+      console.log("[v0] SetPaused tx:", receipt.hash);
       return receipt;
-    } catch (error) {
-      console.error("[v0] Failed to set pause state:", error);
-      throw error;
+    } catch (error: any) {
+      throw new Error(this.translateError(error));
     }
   }
 
-  // Transfer contract ownership (matches ABI: transferOwnership function) - Admin only
   async transferOwnership(newAdmin: string) {
-    if (!this.contract) {
-      throw new Error("Contract not initialized");
-    }
-
+    if (!this.contract) throw new Error("Contract not initialized");
     try {
-      console.log("[v0] Transferring ownership to:", newAdmin);
-
-      const tx = await this.contract.transferOwnership(newAdmin);
+      const normalized = getAddress(newAdmin);
+      const tx = await this.contract.transferOwnership(normalized);
       const receipt = await tx.wait();
-
-      console.log(
-        "[v0] Ownership transferred successfully:",
-        receipt.transactionHash
-      );
+      console.log("[v0] TransferOwnership tx:", receipt.hash);
       return receipt;
-    } catch (error) {
-      console.error("[v0] Failed to transfer ownership:", error);
-      throw error;
+    } catch (error: any) {
+      throw new Error(this.translateError(error));
     }
   }
 
-  // Initialize contract (matches ABI: initialize function) - Admin only
   async initialize() {
-    if (!this.contract) {
-      throw new Error("Contract not initialized");
-    }
-
+    if (!this.contract) throw new Error("Contract not initialized");
     try {
-      console.log("[v0] Initializing contract...");
-
       const tx = await this.contract.initialize();
       const receipt = await tx.wait();
-
-      console.log(
-        "[v0] Contract initialized successfully:",
-        receipt.transactionHash
-      );
+      console.log("[v0] Initialize tx:", receipt.hash);
       return receipt;
-    } catch (error) {
-      console.error("[v0] Failed to initialize contract:", error);
-      throw error;
+    } catch (error: any) {
+      throw new Error(this.translateError(error));
     }
   }
 
-  // Get multiple job details efficiently
   async getMultipleJobs(jobIds: string[]) {
     const jobs = [];
     for (const jobId of jobIds) {
@@ -452,82 +431,75 @@ export class EscrowContractService {
     return jobs;
   }
 
-  // Get all jobs for a specific user (client or freelancer)
   async getUserJobs(userAddress: string) {
     try {
       const totalJobs = await this.getTotalJobs();
+      const normalizedUser = getAddress(userAddress);
       const allJobs = [];
 
       for (let i = 1; i <= parseInt(totalJobs); i++) {
         try {
           const job = await this.getJob(i.toString());
           if (
-            job.client.toLowerCase() === userAddress.toLowerCase() ||
-            job.freelancer.toLowerCase() === userAddress.toLowerCase()
+            getAddress(job.client) === normalizedUser ||
+            getAddress(job.freelancer) === normalizedUser
           ) {
             allJobs.push({ ...job, jobId: i.toString() });
           }
-        } catch (error) {
-          // Job might not exist or be accessible
+        } catch {
           continue;
         }
       }
-
       return allJobs;
-    } catch (error) {
-      console.error("[v0] Failed to get user jobs:", error);
-      throw error;
+    } catch (error: any) {
+      throw new Error(this.translateError(error));
     }
   }
 
-  // Listen to contract events
   setupEventListeners() {
     if (!this.contract) return;
 
-    // Listen for EscrowCreated events
     this.contract.on(
       "EscrowCreated",
       (escrowId, client, freelancer, amount, event) => {
-        console.log("[v0] New escrow created:", {
+        console.log("[v0] New escrow:", {
           escrowId: escrowId.toString(),
           client,
           freelancer,
-          amount: ethers.formatEther(amount),
-          transactionHash: event.transactionHash,
+          amount: formatEther(amount),
+          tx: event.hash,
         });
       }
     );
 
-    // Listen for FundsReleased events
     this.contract.on("FundsReleased", (escrowId, freelancer, amount, event) => {
       console.log("[v0] Funds released:", {
         escrowId: escrowId.toString(),
         freelancer,
-        amount: ethers.formatEther(amount),
-        transactionHash: event.transactionHash,
+        amount: formatEther(amount),
+        tx: event.hash,
       });
     });
   }
 
-  // Get current network
   async getCurrentNetwork() {
     if (!this.provider) return null;
-
     const network = await this.provider.getNetwork();
-    return network;
+    return {
+      name: network.name,
+      chainId: network.chainId.toString(),
+    };
   }
 
-  // Switch to Arbitrum network
   async switchToArbitrum() {
     if (!window.ethereum) return;
 
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0xa4b1" }], // Arbitrum One
+        params: [{ chainId: "0xa4b1" }],
       });
     } catch (switchError: any) {
-      // This error code indicates that the chain has not been added to MetaMask
       if (switchError.code === 4902) {
         try {
           await window.ethereum.request({
@@ -536,53 +508,37 @@ export class EscrowContractService {
               {
                 chainId: "0xa4b1",
                 chainName: "Arbitrum One",
-                nativeCurrency: {
-                  name: "ETH",
-                  symbol: "ETH",
-                  decimals: 18,
-                },
+                nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
                 rpcUrls: ["https://arb1.arbitrum.io/rpc"],
-                blockExplorerUrls: ["https://arbiscan.io/"],
+                blockExplorerUrls: ["https://arbiscan.io"],
               },
             ],
           });
         } catch (addError) {
-          console.error("[v0] Failed to add Arbitrum network:", addError);
+          console.error("[v0] Failed to add Arbitrum:", addError);
         }
+      } else {
+        throw switchError;
       }
     }
   }
 }
 
-// Export singleton instance
 export const escrowService = new EscrowContractService();
 
-// Utility functions for Web3 integration
 export const web3Utils = {
-  // Format address for display
-  formatAddress: (address: string) => {
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
-  },
-
-  // Format ETH amount
-  formatEth: (amount: string) => {
-    return `${Number.parseFloat(amount).toFixed(4)} ETH`;
-  },
-
-  // Get transaction URL
+  formatAddress: (address: string) =>
+    `${address.slice(0, 6)}...${address.slice(-4)}`,
+  formatEth: (amount: string) => `${parseFloat(amount).toFixed(4)} ETH`,
   getTransactionUrl: (
     txHash: string,
     network: "mainnet" | "sepolia" = "mainnet"
   ) => {
-    const baseUrl =
+    const base =
       network === "mainnet"
         ? "https://arbiscan.io/tx/"
         : "https://sepolia.arbiscan.io/tx/";
-    return `${baseUrl}${txHash}`;
+    return `${base}${txHash}`;
   },
-
-  // Validate Ethereum address
-  isValidAddress: (address: string) => {
-    return ethers.isAddress(address);
-  },
+  isValidAddress: (address: string) => isAddress(address),
 };

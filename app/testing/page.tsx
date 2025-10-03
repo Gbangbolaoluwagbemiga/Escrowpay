@@ -64,6 +64,9 @@ export default function ContractTestingPage() {
           setCurrentAccount(accounts[0]);
           setIsConnected(true);
 
+          // Await init here for already-connected wallets on load
+          await escrowService.initializeProvider();
+
           const network = await escrowService.getCurrentNetwork();
           setCurrentNetwork(network);
         }
@@ -129,11 +132,34 @@ export default function ContractTestingPage() {
       return;
     }
 
+    // Validate freelancer ≠ client (connected wallet)
+    if (
+      createEscrowData.freelancer.toLowerCase() === currentAccount.toLowerCase()
+    ) {
+      toast({
+        title: "Invalid Input",
+        description:
+          "Freelancer address cannot be the same as your client address. Please use a different address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       setLoading(true);
       const duration = Math.floor(
         (new Date(createEscrowData.deadline).getTime() - Date.now()) / 1000
       );
+
+      // Validate future deadline
+      if (duration <= 0) {
+        toast({
+          title: "Invalid Deadline",
+          description: "Deadline must be in the future.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       const result = await escrowService.deposit(
         createEscrowData.freelancer,
@@ -141,18 +167,18 @@ export default function ContractTestingPage() {
         createEscrowData.amount
       );
 
-      addTestResult("Create Job", true, result);
+      addTestResult("Create Escrow", true, result);
       setEscrowId(result.jobId);
 
       toast({
-        title: "Job Created",
+        title: "Escrow Created",
         description: `Job ID: ${result.jobId}`,
       });
     } catch (error: any) {
       addTestResult("Create Escrow", false, null, error.message);
       toast({
         title: "Test Failed",
-        description: error.message,
+        description: error.message, // Now user-friendly from service
         variant: "destructive",
       });
     } finally {
@@ -185,7 +211,7 @@ export default function ContractTestingPage() {
       addTestResult("Get Job Details", false, null, error.message);
       toast({
         title: "Error",
-        description: error.message || "Failed to get job details",
+        description: error.message,
         variant: "destructive",
       });
     } finally {
@@ -217,7 +243,7 @@ export default function ContractTestingPage() {
       addTestResult("Release Funds", false, null, error.message);
       toast({
         title: "Error",
-        description: error.message || "Failed to release funds",
+        description: error.message,
         variant: "destructive",
       });
     } finally {
@@ -249,7 +275,7 @@ export default function ContractTestingPage() {
       addTestResult("Refund", false, null, error.message);
       toast({
         title: "Error",
-        description: error.message || "Failed to process refund",
+        description: error.message,
         variant: "destructive",
       });
     } finally {
@@ -281,7 +307,7 @@ export default function ContractTestingPage() {
       addTestResult("Emergency Refund", false, null, error.message);
       toast({
         title: "Error",
-        description: error.message || "Failed to process emergency refund",
+        description: error.message,
         variant: "destructive",
       });
     } finally {
@@ -313,7 +339,7 @@ export default function ContractTestingPage() {
       addTestResult("Auto Release", false, null, error.message);
       toast({
         title: "Error",
-        description: error.message || "Failed to trigger auto release",
+        description: error.message,
         variant: "destructive",
       });
     } finally {
@@ -339,7 +365,7 @@ export default function ContractTestingPage() {
       addTestResult("Get Active Jobs", false, null, error.message);
       toast({
         title: "Error",
-        description: error.message || "Failed to get active jobs",
+        description: error.message,
         variant: "destructive",
       });
     } finally {
@@ -362,7 +388,56 @@ export default function ContractTestingPage() {
       addTestResult("Get Total Jobs", false, null, error.message);
       toast({
         title: "Error",
-        description: error.message || "Failed to get total jobs",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // New: Admin init
+  const testInitializeContract = async () => {
+    if (!isConnected) {
+      toast({
+        title: "Error",
+        description: "Connect wallet first",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      setLoading(true);
+      const result = await escrowService.initialize();
+      addTestResult("Initialize Contract", true, { txHash: result.hash });
+      toast({ title: "Initialized", description: `Tx: ${result.hash}` });
+    } catch (error: any) {
+      addTestResult("Initialize Contract", false, null, error.message);
+      toast({
+        title: "Init Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // New: Check paused
+  const testCheckPaused = async () => {
+    try {
+      setLoading(true);
+      const paused = await escrowService.isPaused();
+      addTestResult("Check Paused", true, { paused });
+      toast({
+        title: "Paused Status",
+        description: paused ? "Yes (unpause needed)" : "No",
+      });
+    } catch (error: any) {
+      addTestResult("Check Paused", false, null, error.message);
+      toast({
+        title: "Error",
+        description: error.message,
         variant: "destructive",
       });
     } finally {
@@ -478,7 +553,7 @@ export default function ContractTestingPage() {
                   <Label htmlFor="freelancer">Freelancer Address</Label>
                   <Input
                     id="freelancer"
-                    placeholder="0x..."
+                    placeholder="0x... (different from your wallet)"
                     value={createEscrowData.freelancer}
                     onChange={(e) =>
                       setCreateEscrowData((prev) => ({
@@ -674,6 +749,34 @@ export default function ContractTestingPage() {
                     variant="secondary"
                   >
                     Auto Release
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Admin/Setup Actions</CardTitle>
+                <CardDescription>
+                  Initialize or check contract state (admin only)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <Button
+                    onClick={testInitializeContract}
+                    disabled={loading || !isConnected}
+                    className="w-full"
+                    variant="secondary"
+                  >
+                    Initialize Contract
+                  </Button>
+                  <Button
+                    onClick={testCheckPaused}
+                    disabled={loading || !isConnected}
+                    className="w-full"
+                  >
+                    Check Paused
                   </Button>
                 </div>
               </CardContent>
